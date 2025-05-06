@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900">
+    <header class="bg-white dark:bg-gray-800 shadow-md">
+        <div class="container mx-auto px-4 py-6">
+            <div class="flex items-center justify-between">
+                <h1 class="text-2xl font-bold text-gray-800 dark:text-white">GitHub Analytics Dashboard</h1>
+                <div class="search-container flex items-center space-x-4">
+                    <input type="text" 
+                           id="username-input" 
+                           placeholder="Enter GitHub username" 
+                           class="px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button id="search-btn" 
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                        Search
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        <!-- Loading State -->
+        <div id="loading" class="hidden">
+            <div class="flex justify-center items-center">
+                <div class="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="hidden">
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+                <span id="error-message">Error loading data.</span>
+            </div>
+        </div>
+
+        <!-- Content Grid -->
+        <div id="content" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Profile Section -->
+            <section id="profile-section" class="col-span-full">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                    <div id="profile-content" class="flex flex-col md:flex-row items-start gap-6"></div>
+                </div>
+            </section>
+
+            <!-- Overview Stats -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Overview</h2>
+                <div id="stats-overview" class="grid grid-cols-2 gap-4"></div>
+            </section>
+
+            <!-- Repository Stats -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Top Repositories</h2>
+                <div id="repo-stats" class="space-y-4"></div>
+            </section>
+
+            <!-- Language Distribution -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Languages</h2>
+                <canvas id="languages-chart"></canvas>
+            </section>
+
+            <!-- Activity Timeline -->
+            <section class="col-span-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Recent Activity</h2>
+                <div id="activity-timeline" class="space-y-4"></div>
+            </section>
+
+            <!-- Star Analytics -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Star Analytics</h2>
+                <canvas id="star-analytics-chart"></canvas>
+            </section>
+
+            <!-- PR & Issues -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">PR & Issues</h2>
+                <canvas id="pr-issues-chart"></canvas>
+                <div id="pr-issues-list" class="mt-4"></div>
+            </section>
+
+            <!-- Organizations -->
+            <section class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Organizations</h2>
+                <div id="organizations-list" class="grid grid-cols-2 gap-4"></div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        class GitHubAnalytics {
+            constructor() {
+                // Replace with your GitHub token
+                this.token = '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';
+                this.baseUrl = 'https://api.github.com';
+                this.charts = {};
+                this.init();
+            }
+
+            init() {
+                this.searchButton = document.getElementById('search-btn');
+                this.usernameInput = document.getElementById('username-input');
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                if (this.searchButton && this.usernameInput) {
+                    this.searchButton.addEventListener('click', () => {
+                        this.fetchUserData(this.usernameInput.value);
+                    });
+
+                    this.usernameInput.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            this.fetchUserData(this.usernameInput.value);
+                        }
+                    });
+                }
+            }
+
+            async fetchWithAuth(endpoint) {
+                try {
+                    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+                        headers: {
+                            'Authorization': `Bearer ${this.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`GitHub API Error: ${response.status} - ${response.statusText}`);
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
+                }
+            }
+
+            async fetchUserData(username) {
+                if (!username) {
+                    this.showError('Please enter a username');
+                    return;
+                }
+
+                this.showLoading(true);
+                this.hideError();
+
+                try {
+                    const [
+                        userData,
+                        repos,
+                        events,
+                        followers,
+                        following,
+                        organizations
+                    ] = await Promise.all([
+                        this.fetchWithAuth(`/users/${username}`),
+                        this.fetchWithAuth(`/users/${username}/repos?per_page=100&sort=updated`),
+                        this.fetchWithAuth(`/users/${username}/events?per_page=100`),
+                        this.fetchWithAuth(`/users/${username}/followers`),
+                        this.fetchWithAuth(`/users/${username}/following`),
+                        this.fetchWithAuth(`/users/${username}/orgs`)
+                    ]);
+
+                    const [prData, issuesData] = await Promise.all([
+                        this.fetchWithAuth(`/search/issues?q=author:${username}+type:pr`),
+                        this.fetchWithAuth(`/search/issues?q=author:${username}+type:issue`)
+                    ]);
+
+                    this.updateUI(userData, repos, events, followers, following, organizations, prData, issuesData);
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    this.showError(`Failed to load data: ${error.message}`);
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+
+            updateUI(userData, repos, events, followers, following, organizations, prData, issuesData) {
+                this.updateProfile(userData);
+                this.updateOverviewStats(userData, repos, followers, following, prData, issuesData);
+                this.updateRepositoryStats(repos);
+                this.updateLanguageStats(repos);
+                this.updateActivityTimeline(events);
+                this.updateStarAnalytics(repos);
+                this.updatePRAndIssues(prData, issuesData);
+                this.updateOrganizations(organizations);
+            }
+
+            updateProfile(user) {
+                const profileContent = document.getElementById('profile-content');
+                if (!profileContent) return;
+
+                profileContent.innerHTML = `
+                    <div class="flex-shrink-0">
+                        <img src="${user.avatar_url}" alt="${user.login}" 
+                             class="w-32 h-32 rounded-full border-4 border-blue-500">
+                    </div>
+                    <div class="flex-grow">
+                        <h1 class="text-2xl font-bold text-gray-800 dark:text-white">
+                            ${user.name || user.login}
+                        </h1>
+                        <p class="text-gray-600 dark:text-gray-400">@${user.login}</p>
+                        ${user.bio ? `<p class="mt-2 text-gray-700 dark:text-gray-300">${user.bio}</p>` : ''}
+                        <div class="mt-4 flex flex-wrap gap-4">
+                            ${user.company ? `
+                                <div class="flex items-center text-gray-600 dark:text-gray-400">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M10 2a8 8 0 100 16 8 8 0 000-16zM4.5 10a5.5 5.5 0 1111 0 5.5 5.5 0 01-11 0z"/>
+                                    </svg>
+                                    ${user.company}
+                                </div>
+                            ` : ''}
+                            ${user.location ? `
+                                <div class="flex items-center text-gray-600 dark:text-gray-400">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/>
+                                    </svg>
+                                    ${user.location}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            updateOverviewStats(user, repos, followers, following, prData, issuesData) {
+                const statsOverview = document.getElementById('stats-overview');
+                if (!statsOverview) return;
+
+                const stats = [
+                    { label: 'Repositories', value: user.public_repos },
+                    { label: 'Pull Requests', value: prData.total_count },
+                    { label: 'Issues', value: issuesData.total_count },
+                    { label: 'Stars', value: repos.reduce((acc, repo) => acc + repo.stargazers_count, 0) }
+                ];
+
+                statsOverview.innerHTML = stats.map(stat => `
+                    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                        <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">${stat.label}</h3>
+                        <p class="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+                            ${this.formatNumber(stat.value)}
+                        </p>
+                    </div>
+                `).join('');
+            }
+
+            updateRepositoryStats(repos) {
+                const repoStats = document.getElementById('repo-stats');
+                if (!repoStats) return;
+
+                const topRepos = repos
+                    .sort((a, b) => b.stargazers_count - a.stargazers_count)
+                    .slice(0, 5);
+
+                repoStats.innerHTML = topRepos.map(repo => `
+                    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 class="text-lg font-medium text-gray-900 dark:text-white">
+                                    <a href="${repo.html_url}" target="_blank" class="hover:underline">
+                                        ${repo.name}
+                                    </a>
+                                </h3>
+                                <p class="text-sm text-gray-500 dark:text-gray-400">
+                                    ${repo.description || 'No description'}
+                                </p>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <span class="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                                    <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                    </svg>
+                                    ${repo.stargazers_count}
+                                </span>
+                                <span class="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                                    <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                    </svg>
+                                    ${repo.forks_count}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            updateLanguageStats(repos) {
+                const canvas = document.getElementById('languages-chart');
+                if (!canvas) return;
+
+                const ctx = canvas.getContext('2d');
+                const languageStats = {};
+                
+                for (const repo of repos) {
+                    if (repo.language) {
+                        languageStats[repo.language] = (languageStats[repo.language] || 0) + 1;
+                    }
+                }
+
+                if (this.charts.language) {
+                    this.charts.language.destroy();
+                }
+
+                this.charts.language = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(languageStats),
+                        datasets: [{
+                            data: Object.values(languageStats),
+                            backgroundColor: this.generateColors(Object.keys(languageStats).length)
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    color: document.querySelector('html').classList.contains('dark') ? 'white' : 'black'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            updateStarAnalytics(repos) {
+                const canvas = document.getElementById('star-analytics-chart');
+                if (!canvas) return;
+
+                const ctx = canvas.getContext('2d');
+                const topStarredRepos = repos
+                    .sort((a, b) => b.stargazers_count - a.stargazers_count)
+                    .slice(0, 5);
+
+                if (this.charts.stars) {
+                    this.charts.stars.destroy();
+                }
+
+                this.charts.stars = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: topStarredRepos.map(repo => repo.name),
+                        datasets: [{
+                            label: 'Stars',
+                            data: topStarredRepos.map(repo => repo.stargazers_count),
+                            backgroundColor: '#3B82F6'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            }
+
+            updatePRAndIssues(prData, issuesData) {
+                const canvas = document.getElementById('pr-issues-chart');
+                if (!canvas) return;
+
+                const ctx = canvas.getContext('2d');
+
+                if (this.charts.prIssues) {
+                    this.charts.prIssues.destroy();
+                }
+
+                this.charts.prIssues = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Pull Requests', 'Issues'],
+                        datasets: [{
+                            data: [prData.total_count, issuesData.total_count],
+                            backgroundColor: ['#3B82F6', '#EF4444']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+
+                // Update PR & Issues list
+                const prIssuesList = document.getElementById('pr-issues-list');
+                if (!prIssuesList) return;
+
+                const recentPRs = prData.items.slice(0, 5);
+                const recentIssues = issuesData.items.slice(0, 5);
+
+                prIssuesList.innerHTML = `
+                    <div class="space-y-2">
+                        <h3 class="font-medium text-gray-700 dark:text-gray-300">Recent Pull Requests</h3>
+                        ${this.renderPRIssuesList(recentPRs)}
+                        
+                        <h3 class="font-medium text-gray-700 dark:text-gray-300 mt-4">Recent Issues</h3>
+                        ${this.renderPRIssuesList(recentIssues)}
+                    </div>
+                `;
+            }
+
+            updateActivityTimeline(events) {
+                const timeline = document.getElementById('activity-timeline');
+                if (!timeline) return;
+
+                const recentEvents = events.slice(0, 10);
+
+                timeline.innerHTML = recentEvents.map(event => {
+                    const eventIcon = this.getEventIcon(event.type);
+                    const eventDescription = this.getEventDescription(event);
+                    const timeAgo = this.timeAgo(new Date(event.created_at));
+
+                    return `
+                        <div class="flex items-start space-x-4">
+                            <div class="flex-shrink-0">
+                                ${eventIcon}
+                            </div>
+                            <div class="flex-grow">
+                                <p class="text-gray-800 dark:text-white">${eventDescription}</p>
+                                <p class="text-sm text-gray-500 dark:text-gray-400">${timeAgo}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            updateOrganizations(organizations) {
+                const orgsList = document.getElementById('organizations-list');
+                if (!orgsList) return;
+
+                orgsList.innerHTML = organizations.map(org => `
+                    <div class="flex items-center space-x-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <img src="${org.avatar_url}" 
+                             alt="${org.login}" 
+                             class="w-10 h-10 rounded-full">
+                        <div>
+                            <a href="${org.html_url}" 
+                               target="_blank"
+                               class="text-blue-600 hover:underline font-medium">
+                                ${org.login}
+                            </a>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            renderPRIssuesList(items) {
+                return items.map(item => `
+                    <div class="flex items-center justify-between py-2">
+                        <a href="${item.html_url}" 
+                           target="_blank" 
+                           class="text-blue-600 hover:underline truncate">
+                            ${item.title}
+                        </a>
+                        <span class="text-sm text-gray-500">
+                            ${this.timeAgo(new Date(item.created_at))}
+                        </span>
+                    </div>
+                `).join('');
+            }
+
+            getEventIcon(type) {
+                const iconClass = 'w-8 h-8 p-1.5 rounded-full bg-blue-100 text-blue-600';
+                switch (type) {
+                    case 'PushEvent':
+                        return `<svg class="${iconClass}" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+                        </svg>`;
+                    case 'CreateEvent':
+                        return `<svg class="${iconClass}" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                        </svg>`;
+                    default:
+                        return `<svg class="${iconClass}" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 2a8 8 0 100 16 8 8 0 000-16zM4.5 10a5.5 5.5 0 1111 0 5.5 5.5 0 01-11 0z" clip-rule="evenodd"/>
+                        </svg>`;
+                }
+            }
+
+            getEventDescription(event) {
+                switch (event.type) {
+                    case 'PushEvent':
+                        return `Pushed to ${event.repo.name}`;
+                    case 'CreateEvent':
+                        return `Created ${event.payload.ref_type} ${event.payload.ref || ''} in ${event.repo.name}`;
+                    case 'WatchEvent':
+                        return `Starred ${event.repo.name}`;
+                    case 'ForkEvent':
+                        return `Forked ${event.repo.name}`;
+                    default:
+                        return `${event.type} on ${event.repo.name}`;
+                }
+            }
+
+            timeAgo(date) {
+                const seconds = Math.floor((new Date() - date) / 1000);
+                const intervals = {
+                    year: 31536000,
+                    month: 2592000,
+                    week: 604800,
+                    day: 86400,
+                    hour: 3600,
+                    minute: 60
+                };
+
+                for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+                    const interval = Math.floor(seconds / secondsInUnit);
+                    if (interval >= 1) {
+                        return `${interval} ${unit}${interval === 1 ? '' : 's'} ago`;
+                    }
+                }
+                return 'just now';
+            }
+
+            formatNumber(num) {
+                return new Intl.NumberFormat('en-US', {
+                    notation: 'compact',
+                    compactDisplay: 'short'
+                }).format(num);
+            }
+
+            generateColors(count) {
+                const colors = [
+                    '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#6366F1',
+                    '#EC4899', '#8B5CF6', '#14B8A6', '#F97316', '#06B6D4'
+                ];
+                return Array(count).fill().map((_, i) => colors[i % colors.length]);
+            }
+
+            showLoading(show) {
+                const loadingElement = document.getElementById('loading');
+                const contentElement = document.getElementById('content');
+                
+                if (loadingElement && contentElement) {
+                    loadingElement.classList.toggle('hidden', !show);
+                    contentElement.classList.toggle('hidden', show);
+                }
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('error');
+                const errorMessage = document.getElementById('error-message');
+                
+                if (errorDiv && errorMessage) {
+                    errorMessage.textContent = message;
+                    errorDiv.classList.remove('hidden');
+                }
+            }
+
+            hideError() {
+                const errorDiv = document.getElementById('error');
+                if (errorDiv) {
+                    errorDiv.classList.add('hidden');
+                }
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            new GitHubAnalytics();
+        });
+    </script>
+</body>
+</html>
